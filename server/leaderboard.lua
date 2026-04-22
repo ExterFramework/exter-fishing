@@ -1,72 +1,62 @@
-RegisterNetEvent("exter-fishing:server:updateLeaderboard")
-AddEventHandler("exter-fishing:server:updateLeaderboard", function(fishName, fishLength, playerName, caughtAt)
+local function formatTimestamp(timestamp)
+    local unix
 
-    local query = [[
-        INSERT INTO exter_leaderboard (fish_name, fish_length, player_name, caught_at)
-        VALUES (?, ?, ?, ?)
-    ]]
-    local result = MySQL.query.await(query, {fishName, fishLength, playerName, caughtAt})
-
-end)
-
-RegisterCallback("exter-fishing:server:getLeaderboard", function(source, cb, fishName)
-    local query = [[
-        SELECT * FROM exter_leaderboard
-        WHERE fish_name = ?
-        ORDER BY fish_length DESC
-        LIMIT 10
-    ]]
-    local result = MySQL.query.await(query, {fishName})
-    
-    if result then
-        for _, entry in ipairs(result) do
-            entry.caught_at = formatTimestamp(entry.caught_at)
-        end
-        cb(result)
+    if type(timestamp) == 'string' then
+        local year, month, day, hour, min, sec = timestamp:match('(%d+)%-(%d+)%-(%d+) (%d+):(%d+):(%d+)')
+        if not year then return 'unknown' end
+        unix = os.time({
+            year = tonumber(year),
+            month = tonumber(month),
+            day = tonumber(day),
+            hour = tonumber(hour),
+            min = tonumber(min),
+            sec = tonumber(sec)
+        })
+    elseif type(timestamp) == 'number' then
+        unix = timestamp > 9999999999 and math.floor(timestamp / 1000) or timestamp
     else
-        cb(nil)
-    end
-end)
-
-function formatTimestamp(timestamp)
-
-    local timestampUnix
-    if type(timestamp) == "string" then
-        local year, month, day, hour, min, sec = timestamp:match("(%d+)%-(%d+)%-(%d+) (%d+):(%d+):(%d+)")
-        if year and month and day and hour and min and sec then
-
-            local timeTable = {
-                year = year,
-                month = month,
-                day = day,
-                hour = hour,
-                min = min,
-                sec = sec
-            }
-            timestampUnix = os.time(timeTable)
-        else
-            return "Invalid timestamp"
-        end
-    elseif type(timestamp) == "number" then
-        timestampUnix = timestamp / 1000
-
-    else
-        return "Invalid timestamp"
+        return 'unknown'
     end
 
-    local diff = os.time() - timestampUnix
-
+    local diff = math.max(0, os.time() - unix)
     local days = math.floor(diff / 86400)
     local hours = math.floor((diff % 86400) / 3600)
     local minutes = math.floor((diff % 3600) / 60)
 
-    if days > 0 then
-        return days .. " days ago"
-    elseif hours > 0 then
-        return hours .. " hours ago"
-    elseif minutes > 0 then
-        return minutes .. " minutes ago"
-    else
-        return "just now"
-    end
+    if days > 0 then return ('%d days ago'):format(days) end
+    if hours > 0 then return ('%d hours ago'):format(hours) end
+    if minutes > 0 then return ('%d minutes ago'):format(minutes) end
+
+    return 'just now'
 end
+
+RegisterNetEvent('exter-fishing:server:updateLeaderboard', function(fishName, fishLength, playerName, caughtAt)
+    if type(fishName) ~= 'string' or fishName == '' then return end
+    if type(playerName) ~= 'string' or playerName == '' then return end
+
+    MySQL.insert.await([[
+        INSERT INTO exter_leaderboard (fish_name, fish_length, player_name, caught_at)
+        VALUES (?, ?, ?, ?)
+    ]], { fishName, tonumber(fishLength) or 0, playerName, caughtAt or os.date('%Y-%m-%d %H:%M:%S') })
+end)
+
+Bridge.RegisterCallback('exter-fishing:server:getLeaderboard', function(source, cb, fishName)
+    if type(fishName) ~= 'string' or fishName == '' then
+        cb({})
+        return
+    end
+
+    local rows = MySQL.query.await([[
+        SELECT fish_name, fish_length, player_name, caught_at
+        FROM exter_leaderboard
+        WHERE fish_name = ?
+        ORDER BY fish_length DESC
+        LIMIT 10
+    ]], { fishName }) or {}
+
+    for _, row in ipairs(rows) do
+        row.caught_at = formatTimestamp(row.caught_at)
+    end
+
+    cb(rows)
+end)
