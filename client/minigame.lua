@@ -1,6 +1,6 @@
 local minigameCallback = nil
 
-function StartMinigame(playerInfluence, automaticSpeed, directionChangeInterval)
+local function StartMinigame(playerInfluence, automaticSpeed, directionChangeInterval)
     SendNUIMessage({
         type = 'startMinigame',
         playerInfluence = playerInfluence,
@@ -10,16 +10,19 @@ function StartMinigame(playerInfluence, automaticSpeed, directionChangeInterval)
     SetNuiFocus(true, true)
 end
 
-function StopMinigame()
+local function StopMinigame()
     SendNUIMessage({ type = 'stopMinigame' })
     SetNuiFocus(false, false)
 end
 
 RegisterNUICallback('minigameResult', function(data, cb)
-    local success = data.success
+    local success = data and data.success == true
     cb({ closeUI = true })
     StopMinigame()
-    minigameCallback(success)
+
+    if minigameCallback then
+        minigameCallback(success)
+    end
     minigameCallback = nil
 end)
 
